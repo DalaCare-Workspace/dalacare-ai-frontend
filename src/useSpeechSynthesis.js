@@ -5,6 +5,7 @@ export function useSpeechSynthesis() {
   const queueRef = useRef([]);
   const speakingRef = useRef(false);
   const settingsRef = useRef({ voice: null, rate: 1, pitch: 1 });
+  const unlockedRef = useRef(false);
 
   function playNext() {
     if (speakingRef.current || queueRef.current.length === 0) return;
@@ -45,6 +46,16 @@ export function useSpeechSynthesis() {
     speakingRef.current = false;
   }, []);
 
+  // Must be called directly inside a user click/tap handler (not after an
+  // await) — this "unlocks" speechSynthesis in browsers that block audio
+  // until a synchronous user gesture has triggered it at least once.
+  const unlock = useCallback(() => {
+    if (unlockedRef.current) return;
+    unlockedRef.current = true;
+    const unlockUtterance = new SpeechSynthesisUtterance(" ");
+    unlockUtterance.volume = 0;
+    window.speechSynthesis.speak(unlockUtterance);
+  }, []);
   const updateSettings = useCallback((settings) => {
     settingsRef.current = { ...settingsRef.current, ...settings };
   }, []);
@@ -53,5 +64,5 @@ export function useSpeechSynthesis() {
     return window.speechSynthesis.getVoices();
   }, []);
 
-  return { enqueue, stop, updateSettings, getVoices };
+  return { enqueue, stop, updateSettings, getVoices, unlock };
 }

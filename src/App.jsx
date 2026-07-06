@@ -169,7 +169,7 @@ export default function App() {
   const maxDurationTimerRef = useRef(null);
   const lastVolumeUpdateRef = useRef(0);
 
-  const { enqueue, stop, updateSettings } = useSpeechSynthesis();
+  const { enqueue, stop, updateSettings, unlock } = useSpeechSynthesis();
 
   function getHistory() {
     return messages
@@ -420,7 +420,10 @@ function toggleVoice() {
   const next = !voiceEnabled;
   setVoiceEnabled(next);
   if (!next) stop();
-  if (next) setShowVoiceSettings(true);
+  if (next) {
+    unlock(); // must run synchronously in this click handler
+    setShowVoiceSettings(true);
+  }
 }
 
   return (
