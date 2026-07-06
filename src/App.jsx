@@ -67,22 +67,30 @@ function Spinner({ size = 16 }) {
   );
 }
 
-function WaveBars() {
+function WaveBars({ volume }) {
+  const multipliers = [1, 0.75, 1.15, 0.9];
+  const live = typeof volume === "number";
+
   return (
     <span className="wave-bars" aria-hidden="true">
-      <span></span>
-      <span></span>
-      <span></span>
-      <span></span>
+      {multipliers.map((m, i) => {
+        const scale = live ? Math.max(0.25, Math.min(1, volume * m * 6)) : undefined;
+        return (
+          <span
+            key={i}
+            style={live ? { transform: `scaleY(${scale})`, animation: "none" } : undefined}
+          />
+        );
+      })}
     </span>
   );
 }
 
-function VoiceStatusBar({ status }) {
+function VoiceStatusBar({ status, volume }) {
   if (!status) return null;
   return (
     <div className={`voice-status-bar ${status}`}>
-      {status === "listening" ? <WaveBars /> : <Spinner size={13} />}
+      {status === "listening" ? <WaveBars volume={volume} /> : <Spinner size={13} />}
       <span>{status === "listening" ? "Listening..." : "Transcribing your voice..."}</span>
     </div>
   );
@@ -122,6 +130,20 @@ function extractSentences(buffer) {
   return { sentences, remaining: buffer.slice(start) };
 }
 
+const SPEECH_THRESHOLD = 0.02;   // volume level counted as "speaking"
+const SILENCE_THRESHOLD = 0.015; // volume level counted as "quiet"
+const SILENCE_DURATION = 1200;   // ms of quiet before auto-stop
+const MAX_RECORDING_MS = 20000;  // safety cap regardless of silence detection
+
+function getRMS(analyser, buffer) {
+  analyser.getFloatTimeDomainData(buffer);
+  let sumSquares = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    sumSquares += buffer[i] * buffer[i];
+  }
+  return Math.sqrt(sumSquares / buffer.length);
+}
+
 export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -131,6 +153,7 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [apiStatus, setApiStatus] = useState("checking");
+  const [micVolume, setMicVolume] = useState(0);
 
   const bottomRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -138,6 +161,13 @@ export default function App() {
   const sentenceBufferRef = useRef("");
   const voiceSettingsRef = useRef(null);
   const settingsBtnRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const silenceTimerRef = useRef(null);
+  const speechDetectedRef = useRef(false);
+  const monitorFrameRef = useRef(null);
+  const maxDurationTimerRef = useRef(null);
+  const lastVolumeUpdateRef = useRef(0);
 
   const { enqueue, stop, updateSettings } = useSpeechSynthesis();
 
@@ -177,24 +207,6 @@ export default function App() {
       document.removeEventListener("keydown", handleEscape);
     };
   }, [showVoiceSettings]);
-
-  useEffect(() => {
-  if (!isRecording) return;
-
-  function handleGlobalStop() {
-    stopRecording();
-  }
-
-  window.addEventListener("mouseup", handleGlobalStop);
-  window.addEventListener("touchend", handleGlobalStop);
-  window.addEventListener("touchcancel", handleGlobalStop);
-
-  return () => {
-    window.removeEventListener("mouseup", handleGlobalStop);
-    window.removeEventListener("touchend", handleGlobalStop);
-    window.removeEventListener("touchcancel", handleGlobalStop);
-  };
-}, [isRecording]);
 
   function handleVoiceSettingsChange(settings) {
     updateSettings(settings);
@@ -277,12 +289,12 @@ async function startRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioChunksRef.current = [];
-    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    speechDetectedRef.current = false;
 
+    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunksRef.current.push(e.data);
     };
-
     recorder.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
@@ -292,6 +304,51 @@ async function startRecording() {
     mediaRecorderRef.current = recorder;
     recorder.start();
     setIsRecording(true);
+
+    // --- Voice activity detection setup ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+
+    audioContextRef.current = audioCtx;
+    analyserRef.current = analyser;
+
+    const buffer = new Float32Array(analyser.fftSize);
+
+    function monitor() {
+      if (!analyserRef.current) return;
+      const rms = getRMS(analyserRef.current, buffer);
+
+      const now = performance.now();
+      if (now - lastVolumeUpdateRef.current > 80) {
+        setMicVolume(rms);
+        lastVolumeUpdateRef.current = now;
+      }
+
+      if (rms > SPEECH_THRESHOLD) {
+        speechDetectedRef.current = true;
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
+      } else if (speechDetectedRef.current && rms < SILENCE_THRESHOLD) {
+        if (!silenceTimerRef.current) {
+          silenceTimerRef.current = setTimeout(() => {
+            stopRecording();
+          }, SILENCE_DURATION);
+        }
+      }
+
+      monitorFrameRef.current = requestAnimationFrame(monitor);
+    }
+    monitor();
+
+    // Safety net in case silence is never detected
+    maxDurationTimerRef.current = setTimeout(() => {
+      stopRecording();
+    }, MAX_RECORDING_MS);
   } catch {
     alert("Microphone access denied. Please allow mic access and try again.");
   }
@@ -300,6 +357,25 @@ async function startRecording() {
 function stopRecording() {
   mediaRecorderRef.current?.stop();
   setIsRecording(false);
+  setMicVolume(0);
+
+  if (monitorFrameRef.current) {
+    cancelAnimationFrame(monitorFrameRef.current);
+    monitorFrameRef.current = null;
+  }
+  if (silenceTimerRef.current) {
+    clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = null;
+  }
+  if (maxDurationTimerRef.current) {
+    clearTimeout(maxDurationTimerRef.current);
+    maxDurationTimerRef.current = null;
+  }
+  if (audioContextRef.current) {
+    audioContextRef.current.close();
+    audioContextRef.current = null;
+  }
+  analyserRef.current = null;
 }
 
 async function handleVoiceSubmit(blob) {
@@ -421,15 +497,17 @@ function toggleVoice() {
         <div ref={bottomRef} />
       </div>
 
-      <VoiceStatusBar status={isRecording ? "listening" : isProcessingVoice ? "processing" : null} />
+      <VoiceStatusBar
+        status={isRecording ? "listening" : isProcessingVoice ? "processing" : null}
+        volume={micVolume}
+      />
 
       <div className="input-area">
         <button
             className={`mic-btn ${isRecording ? "recording" : ""}`}
-            onMouseDown={startRecording}
-            onTouchStart={startRecording}
+            onClick={isRecording ? stopRecording : startRecording}
             disabled={isStreaming || isProcessingVoice}
-            title="Hold to record"  
+            title={isRecording ? "Tap to stop" : "Tap to speak"}  
         >
           {isProcessingVoice ? <Spinner size={17} /> : isRecording ? <WaveBars /> : <IconMic />}
         </button>
