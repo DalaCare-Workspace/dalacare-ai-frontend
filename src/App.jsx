@@ -1,8 +1,10 @@
-import React from 'react'
-import { Route, Routes } from 'react-router'
-import Homepage from './components/Homepage'
+import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import { streamChat, sendVoice, checkHealth } from "./api";
+import { useSpeechSynthesis } from "./useSpeechSynthesis";
+import VoiceSettings from "./VoiceSettings";
+import "./App.css";
 
-<<<<<<< HEAD
 /* ---------- Icons (inline, no external deps) ---------- */
 
 function IconLogo() {
@@ -441,20 +443,3 @@ export default function App() {
     </div>
   );
 }
-=======
-const App = () => {
-  return (
-<>
-
-<Routes>
-  <Route path='/' element={<Homepage />} />
-</Routes>
-
-</>
-
-
-  )
-}
-
-export default App
->>>>>>> 2c47e7a217165e042132d50a3bd6692ab34bd9c7
