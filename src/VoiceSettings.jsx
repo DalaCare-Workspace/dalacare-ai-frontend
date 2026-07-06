@@ -6,6 +6,16 @@ export default function VoiceSettings({ onSettingsChange, enabled }) {
   const [rate, setRate] = useState(1);
   const [pitch, setPitch] = useState(1);
 
+
+  // Add near the top of the file, above the component:
+function IconPlay() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M6 4l14 8-14 8V4Z" />
+    </svg>
+  );
+}
+
   useEffect(() => {
     function loadVoices() {
       const available = window.speechSynthesis.getVoices();
@@ -102,7 +112,8 @@ export default function VoiceSettings({ onSettingsChange, enabled }) {
       </div>
 
       <button className="preview-btn" onClick={previewVoice}>
-        ▶ Preview voice
+        <IconPlay />
+        <span>Preview voice</span>
       </button>
     </div>
   );

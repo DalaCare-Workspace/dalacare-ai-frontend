@@ -5,7 +5,111 @@ import { useSpeechSynthesis } from "./useSpeechSynthesis";
 import VoiceSettings from "./VoiceSettings";
 import "./App.css";
 
-// Client-side sentence boundary detection
+/* ---------- Icons (inline, no external deps) ---------- */
+
+function IconLogo() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+      <circle cx="13" cy="9" r="4" fill="white" />
+      <circle cx="21" cy="12" r="3" fill="white" />
+      <path d="M5 18c2 6 8 9 13 9s11-3 13-9" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <path d="M13 13c0 5 1 7 5 8" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      <circle cx="18" cy="21" r="1.6" fill="white" />
+    </svg>
+  );
+}
+
+function IconSpeaker({ muted }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <path d="M4 9v6h4l5 4V5L8 9H4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="currentColor" fillOpacity="0.15" />
+      {muted ? (
+        <path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      ) : (
+        <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      )}
+    </svg>
+  );
+}
+
+function IconSettings() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M19.4 13a7.97 7.97 0 0 0 0-2l2-1.5-2-3.5-2.4 1a8 8 0 0 0-1.7-1L15 3h-4l-.3 2a8 8 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.97 7.97 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a8 8 0 0 0 1.7 1L11 21h4l.3-2a8 8 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconMic() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 18v4M9 22h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconSend() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M3 12L21 3L14 21L11 13L3 12Z" />
+    </svg>
+  );
+}
+
+function Spinner({ size = 16 }) {
+  return (
+    <svg className="spinner" width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function WaveBars() {
+  return (
+    <span className="wave-bars" aria-hidden="true">
+      <span></span>
+      <span></span>
+      <span></span>
+      <span></span>
+    </span>
+  );
+}
+
+function VoiceStatusBar({ status }) {
+  if (!status) return null;
+  return (
+    <div className={`voice-status-bar ${status}`}>
+      {status === "listening" ? <WaveBars /> : <Spinner size={13} />}
+      <span>{status === "listening" ? "Listening..." : "Transcribing your voice..."}</span>
+    </div>
+  );
+}
+
+function IconPulse() {
+  return (
+    <svg viewBox="0 0 100 30" className="empty-state-icon" fill="none">
+      <path
+        d="M0 15 H30 L38 3 L46 27 L54 15 H70 L78 6 L86 24 H100"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/* ---------- Client-side sentence boundary detection ---------- */
+
 function extractSentences(buffer) {
   const sentences = [];
   let start = 0;
@@ -38,6 +142,8 @@ export default function App() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const sentenceBufferRef = useRef("");
+  const voiceSettingsRef = useRef(null);
+  const settingsBtnRef = useRef(null);
 
   const { enqueue, stop, updateSettings } = useSpeechSynthesis();
 
@@ -54,6 +160,29 @@ export default function App() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (
+        showVoiceSettings &&
+        voiceSettingsRef.current &&
+        !voiceSettingsRef.current.contains(e.target) &&
+        settingsBtnRef.current &&
+        !settingsBtnRef.current.contains(e.target)
+      ) {
+        setShowVoiceSettings(false);
+      }
+    }
+    function handleEscape(e) {
+      if (e.key === "Escape") setShowVoiceSettings(false);
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showVoiceSettings]);
 
   function handleVoiceSettingsChange(settings) {
     updateSettings(settings);
@@ -78,8 +207,7 @@ export default function App() {
     await streamChat(
       userMessage.content,
       history,
-      false, // always false — we do TTS client-side now
-      // onToken
+      false,
       (token) => {
         setMessages((prev) => {
           const updated = [...prev];
@@ -93,21 +221,15 @@ export default function App() {
           return updated;
         });
 
-        // Client-side sentence detection for instant TTS
         if (voiceEnabled) {
           sentenceBufferRef.current += token;
-          const { sentences, remaining } = extractSentences(
-            sentenceBufferRef.current
-          );
+          const { sentences, remaining } = extractSentences(sentenceBufferRef.current);
           sentenceBufferRef.current = remaining;
           sentences.forEach((s) => enqueue(s));
         }
       },
-      // onAudio — not used anymore
       () => {},
-      // onDone
       () => {
-        // Flush remaining buffer
         if (voiceEnabled && sentenceBufferRef.current.trim()) {
           enqueue(sentenceBufferRef.current.trim());
           sentenceBufferRef.current = "";
@@ -122,7 +244,6 @@ export default function App() {
         });
         setIsStreaming(false);
       },
-      // onError
       (err) => {
         setMessages((prev) => {
           const updated = [...prev];
@@ -182,7 +303,6 @@ export default function App() {
         { role: "assistant", content: result.response, streaming: false },
       ]);
 
-      // Speak the voice response using browser TTS
       if (voiceEnabled && result.response) {
         enqueue(result.response);
       }
@@ -218,59 +338,61 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <span className="logo">💊</span>
+          <span className="logo">
+            <IconLogo />
+          </span>
           <div>
-            <h1>DalaCare AI</h1>
+            <h1>
+              <span className="brand-dala">Dala</span>
+              <span className="brand-care">Care AI</span>
+            </h1>
             <p>Your Intelligent Health Assistant</p>
           </div>
         </div>
         <div className="header-right">
-          <div
-            className={`status-dot ${apiStatus}`}
-            title={`Backend: ${apiStatus}`}
-          />
+          <div className={`status-dot ${apiStatus}`} title={`Backend: ${apiStatus}`} />
           <button
             className={`voice-toggle-btn ${voiceEnabled ? "active" : ""}`}
             onClick={toggleVoice}
             title="Toggle voice responses"
           >
-            🔊 {voiceEnabled ? "Voice On" : "Voice Off"}
+            <IconSpeaker muted={!voiceEnabled} />
+            <span>{voiceEnabled ? "Voice On" : "Voice Off"}</span>
           </button>
           {voiceEnabled && (
             <button
-              className="settings-btn"
+              ref={settingsBtnRef}
+              className={`settings-btn ${showVoiceSettings ? "open" : ""}`}
               onClick={() => setShowVoiceSettings((v) => !v)}
               title="Voice settings"
             >
-              ⚙️
+              <IconSettings />
             </button>
           )}
         </div>
       </header>
 
-      {showVoiceSettings && voiceEnabled && (
-        <VoiceSettings
-          enabled={voiceEnabled}
-          onSettingsChange={handleVoiceSettingsChange}
-        />
-      )}
+      <div
+        ref={voiceSettingsRef}
+        className={`voice-settings-wrapper ${showVoiceSettings && voiceEnabled ? "open" : ""}`}
+      >
+        <VoiceSettings enabled={voiceEnabled} onSettingsChange={handleVoiceSettingsChange} />
+      </div>
 
       <div className="messages">
         {messages.length === 0 && (
           <div className="empty-state">
-            <p>👋 Ask me about symptoms, conditions, or general health questions.</p>
+            <IconPulse />
+            <p>Ask me about symptoms, conditions, or general health questions.</p>
             <p className="disclaimer">
-              I provide health information, not medical diagnoses. Always consult
-              a doctor for personal medical advice.
+              I provide health information, not medical diagnoses. Always consult a doctor for
+              personal medical advice.
             </p>
           </div>
         )}
 
         {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`message ${msg.role} ${msg.error ? "error" : ""}`}
-          >
+          <div key={i} className={`message ${msg.role} ${msg.error ? "error" : ""}`}>
             <div className="bubble">
               {msg.role === "assistant" ? (
                 <>
@@ -286,6 +408,8 @@ export default function App() {
         <div ref={bottomRef} />
       </div>
 
+      <VoiceStatusBar status={isRecording ? "listening" : isProcessingVoice ? "processing" : null} />
+
       <div className="input-area">
         <button
           className={`mic-btn ${isRecording ? "recording" : ""}`}
@@ -296,7 +420,7 @@ export default function App() {
           disabled={isStreaming || isProcessingVoice}
           title="Hold to record"
         >
-          {isProcessingVoice ? "⏳" : isRecording ? "🔴" : "🎙️"}
+          {isProcessingVoice ? <Spinner size={17} /> : isRecording ? <WaveBars /> : <IconMic />}
         </button>
 
         <textarea
@@ -313,7 +437,7 @@ export default function App() {
           onClick={handleSend}
           disabled={!input.trim() || isStreaming || isProcessingVoice}
         >
-          {isStreaming ? "⏳" : "➤"}
+          {isStreaming ? <Spinner size={16} /> : <IconSend />}
         </button>
       </div>
     </div>
