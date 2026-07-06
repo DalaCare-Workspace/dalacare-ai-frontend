@@ -7,17 +7,11 @@ import "./App.css";
 
 /* ---------- Icons (inline, no external deps) ---------- */
 
+import logo from "./assets/logo.jpeg";
 function IconLogo() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
-      <circle cx="13" cy="9" r="4" fill="white" />
-      <circle cx="21" cy="12" r="3" fill="white" />
-      <path d="M5 18c2 6 8 9 13 9s11-3 13-9" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" />
-      <path d="M13 13c0 5 1 7 5 8" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none" />
-      <circle cx="18" cy="21" r="1.6" fill="white" />
-    </svg>
-  );
+  return <img src={logo} alt="DalaCare AI logo" className="logo-img" />;
 }
+
 
 function IconSpeaker({ muted }) {
   return (
@@ -184,6 +178,24 @@ export default function App() {
     };
   }, [showVoiceSettings]);
 
+  useEffect(() => {
+  if (!isRecording) return;
+
+  function handleGlobalStop() {
+    stopRecording();
+  }
+
+  window.addEventListener("mouseup", handleGlobalStop);
+  window.addEventListener("touchend", handleGlobalStop);
+  window.addEventListener("touchcancel", handleGlobalStop);
+
+  return () => {
+    window.removeEventListener("mouseup", handleGlobalStop);
+    window.removeEventListener("touchend", handleGlobalStop);
+    window.removeEventListener("touchcancel", handleGlobalStop);
+  };
+}, [isRecording]);
+
   function handleVoiceSettingsChange(settings) {
     updateSettings(settings);
   }
@@ -260,79 +272,80 @@ export default function App() {
     );
   }
 
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+async function startRecording() {
+  if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunksRef.current = [];
+    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
 
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        await handleVoiceSubmit(blob);
-      };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      await handleVoiceSubmit(blob);
+    };
 
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setIsRecording(true);
-    } catch {
-      alert("Microphone access denied. Please allow mic access and try again.");
+    mediaRecorderRef.current = recorder;
+    recorder.start();
+    setIsRecording(true);
+  } catch {
+    alert("Microphone access denied. Please allow mic access and try again.");
+  }
+}
+
+function stopRecording() {
+  mediaRecorderRef.current?.stop();
+  setIsRecording(false);
+}
+
+async function handleVoiceSubmit(blob) {
+  setIsProcessingVoice(true);
+  stop();
+  const history = getHistory();
+
+  try {
+    const result = await sendVoice(blob, history);
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: `🎙️ "${result.transcript}"` },
+      { role: "assistant", content: result.response, streaming: false },
+    ]);
+
+    if (voiceEnabled && result.response) {
+      enqueue(result.response);
     }
+  } catch (err) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: `Voice error: ${err.message}`,
+        error: true,
+      },
+    ]);
+  } finally {
+    setIsProcessingVoice(false);
   }
+}
 
-  function stopRecording() {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
+function handleKeyDown(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    handleSend();
   }
+}
 
-  async function handleVoiceSubmit(blob) {
-    setIsProcessingVoice(true);
-    stop();
-    const history = getHistory();
-
-    try {
-      const result = await sendVoice(blob, history);
-
-      setMessages((prev) => [
-        ...prev,
-        { role: "user", content: `🎙️ "${result.transcript}"` },
-        { role: "assistant", content: result.response, streaming: false },
-      ]);
-
-      if (voiceEnabled && result.response) {
-        enqueue(result.response);
-      }
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Voice error: ${err.message}`,
-          error: true,
-        },
-      ]);
-    } finally {
-      setIsProcessingVoice(false);
-    }
-  }
-
-  function handleKeyDown(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }
-
-  function toggleVoice() {
-    const next = !voiceEnabled;
-    setVoiceEnabled(next);
-    if (!next) stop();
-    if (next) setShowVoiceSettings(true);
-  }
+function toggleVoice() {
+  const next = !voiceEnabled;
+  setVoiceEnabled(next);
+  if (!next) stop();
+  if (next) setShowVoiceSettings(true);
+}
 
   return (
     <div className="app">
@@ -412,13 +425,11 @@ export default function App() {
 
       <div className="input-area">
         <button
-          className={`mic-btn ${isRecording ? "recording" : ""}`}
-          onMouseDown={startRecording}
-          onMouseUp={stopRecording}
-          onTouchStart={startRecording}
-          onTouchEnd={stopRecording}
-          disabled={isStreaming || isProcessingVoice}
-          title="Hold to record"
+            className={`mic-btn ${isRecording ? "recording" : ""}`}
+            onMouseDown={startRecording}
+            onTouchStart={startRecording}
+            disabled={isStreaming || isProcessingVoice}
+            title="Hold to record"  
         >
           {isProcessingVoice ? <Spinner size={17} /> : isRecording ? <WaveBars /> : <IconMic />}
         </button>
