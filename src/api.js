@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || "https://dalainnovation-dalacare-chat-ai.hf.space";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 export async function streamChat(message, history, voiceEnabled, onToken, onAudio, onDone, onError) {
   try {
